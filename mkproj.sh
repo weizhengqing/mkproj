@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 
 # ABINIT项目目录结构自动生成脚本
 # 版本: 2.2
@@ -31,7 +31,7 @@ show_usage() {
     echo "ABINIT项目目录结构生成器 v2.2"
     echo ""
     echo "使用方法:"
-    echo "  zsh ${script_name} <项目名称> [目标路径] [选项]"
+    echo "  ${script_name} <项目名称> [目标路径] [选项]"
     echo ""
     echo "选项:"
     echo "  --with-rpt    创建 rpt/ (报告) 目录"
@@ -63,9 +63,9 @@ show_usage() {
     echo "  str/opt_traj/ 结构优化轨迹"
     echo ""
     echo "示例:"
-    echo "  zsh ${script_name} TiO2_Study"
-    echo "  zsh ${script_name} TiO2_Study /path/to/dir --with-doc --with-rpt"
-    echo "  zsh ${script_name} TiO2_Study --yes-all"
+    echo "  ${script_name} TiO2_Study"
+    echo "  ${script_name} TiO2_Study /path/to/dir --with-doc --with-rpt"
+    echo "  ${script_name} TiO2_Study --yes-all"
 }
 
 # 验证项目名称
@@ -87,15 +87,10 @@ validate_project_name() {
 }
 
 # ──────────────────────────────────────────────
-# 终端 TUI 勾选菜单（纯 zsh，兼容 macOS / Linux）
+# 终端 TUI 勾选菜单（兼容 zsh 和 bash，兼容 macOS / Linux）
 # ↑↓ 移动光标  空格 勾选/取消  Enter 确认
-#
-# 修复说明：
-#   zsh 嵌套函数无法访问外层 local 变量（无闭包），
-#   需要内联绘制逻辑，避免嵌套函数。
 # ──────────────────────────────────────────────
 ask_via_terminal_menu() {
-    # zsh 数组从 1 开始
     local opt1="rpt   实验报告 / 结果汇总"
     local opt2="doc   项目文档 / 说明"
     local opt3="ref   参考文献 / 资料"
@@ -108,9 +103,6 @@ ask_via_terminal_menu() {
     local total_lines=9
     local key k2 k3
 
-    # ── 内联绘制函数（取代闭包）──────────────────
-    # 用法：_tui_draw <cur> <s1> <s2> <s3> <s4> <s5> <redraw:0|1>
-    #   redraw=0 首次绘制；redraw=1 先上移 total_lines 再清屏重绘
     _tui_draw() {
         local _cur=$1 _s1=$2 _s2=$3 _s3=$4 _s4=$5 _s5=$6 _redraw=$7
         local _i _box
@@ -123,33 +115,62 @@ ask_via_terminal_menu() {
         printf "  ${CYAN}可选目录 (↑↓/hjkl 移动  空格 勾选  Enter 确认)：${NC}\n"
         echo ""
 
-        local _states=($_s1 $_s2 $_s3 $_s4 $_s5)
-        local _opts=("$opt1" "$opt2" "$opt3" "$opt4" "$opt5")
         for _i in 1 2 3 4 5; do
-            if (( _states[$_i] )); then
+            local _state=0
+            local _opt=""
+            case $_i in
+                1) _state=$_s1; _opt="$opt1" ;;
+                2) _state=$_s2; _opt="$opt2" ;;
+                3) _state=$_s3; _opt="$opt3" ;;
+                4) _state=$_s4; _opt="$opt4" ;;
+                5) _state=$_s5; _opt="$opt5" ;;
+            esac
+
+            if (( _state )); then
                 _box="${GREEN}[✓]${NC}"
             else
                 _box="[ ]"
             fi
             if (( _i == _cur )); then
-                printf "  ${CYAN}▶${NC} %b %s\n" "$_box" "${_opts[$_i]}"
+                printf "  ${CYAN}▶${NC} %b %s\n" "$_box" "$_opt"
             else
-                printf "    %b %s\n" "$_box" "${_opts[$_i]}"
+                printf "    %b %s\n" "$_box" "$_opt"
             fi
         done
         echo ""
     }
 
-    # 首次绘制
     _tui_draw $cur $s1 $s2 $s3 $s4 $s5 0
 
     tput civis 2>/dev/null  # 隐藏光标
 
+    # 兼容 bash 和 zsh 的单字符读取函数
+    _read_char() {
+        local var_name=$1
+        local timeout=$2
+        if [ -n "$ZSH_VERSION" ]; then
+            if [ -n "$timeout" ]; then
+                IFS= read -r -s -k 1 -t "$timeout" "$var_name" 2>/dev/null
+            else
+                IFS= read -r -s -k 1 "$var_name" 2>/dev/null
+            fi
+        else
+            if [ -n "$timeout" ]; then
+                IFS= read -r -s -n 1 -t "$timeout" "$var_name" 2>/dev/null
+            else
+                IFS= read -r -s -n 1 "$var_name" 2>/dev/null
+            fi
+        fi
+    }
+
     while true; do
-        IFS= read -rsk1 key
+        key=""
+        _read_char key
         if [[ "$key" == $'\x1b' ]]; then
-            IFS= read -rsk1 -t0.1 k2
-            IFS= read -rsk1 -t0.1 k3
+            k2=""
+            k3=""
+            _read_char k2 0.1
+            _read_char k3 0.1
             if [[ "$k2" == '[' ]]; then
                 case "$k3" in
                     'A') (( cur-- )); (( cur < 1    )) && cur=$nopt ;;
@@ -178,7 +199,14 @@ ask_via_terminal_menu() {
     done
 
     tput cnorm 2>/dev/null  # 恢复光标
-    unfunction _tui_draw 2>/dev/null
+    
+    if [ -n "$ZSH_VERSION" ]; then
+        unfunction _tui_draw 2>/dev/null
+        unfunction _read_char 2>/dev/null
+    else
+        unset -f _tui_draw 2>/dev/null
+        unset -f _read_char 2>/dev/null
+    fi
 
     (( s1 )) && OPT_RPT=true  || true
     (( s2 )) && OPT_DOC=true  || true
